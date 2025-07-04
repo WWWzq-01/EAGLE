@@ -1,0 +1,14 @@
+{
+    "structure": {
+        "topk": 100,
+        "alpha": 0.9,
+        "beta": 0.9
+    },
+    "time": {
+        "topk": 50,
+        "topk_sample_flag": "last",
+        "lr": 0.001,
+        "wd": 0.0,
+        "bs": 200
+    }
+}
