@@ -1,0 +1,48 @@
+{
+  "system": "EAGLE-Time",
+  "model": "EAGLE",
+  "stage": "time",
+  "dataset": "lastfm",
+  "run_type": "tta",
+  "epochs_requested": 5,
+  "completed_epochs": 5,
+  "best_epoch": 5,
+  "best_val_ap": 0.7188120453962532,
+  "best_val_auc": null,
+  "final_test_metrics": {
+    "ap": 0.11297671029015989,
+    "auc_or_mrr": 0.24766123323324418,
+    "hit_at_10": 0.4186142094149795
+  },
+  "config": {
+    "dataset_name": "lastfm",
+    "batch_size": 200,
+    "topk": 20,
+    "topk_sample_flag": "last",
+    "num_epochs": 5,
+    "patience": 0,
+    "lr": 0.0001,
+    "weight_decay": 5e-05,
+    "num_layers": 1,
+    "hidden_dims": 100,
+    "gpu": 0,
+    "seed": 42,
+    "filename": "topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace"
+  },
+  "paths": {
+    "log_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace/log_learn_time/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "best_model_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace/saved_time_models/learn_time/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200.pth",
+    "val_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace/time_score_cache/lastfm/val_topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "test_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace/time_score_cache/lastfm/test_topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "epoch_score_dir": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed42_lastfm/tta/workspace/time_epoch_scores/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200"
+  },
+  "wall_seconds": {
+    "prepare": 100.90175,
+    "train": 188.282265,
+    "val": 11.848013,
+    "test": 293.077362,
+    "total": 594.10939
+  },
+  "stop_reason": "max_epochs"
+}

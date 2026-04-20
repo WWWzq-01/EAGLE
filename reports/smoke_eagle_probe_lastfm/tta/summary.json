@@ -1,0 +1,75 @@
+{
+  "system": "EAGLE",
+  "model": "EAGLE",
+  "dataset": "lastfm",
+  "run_type": "tta",
+  "epochs_requested": 1,
+  "completed_epochs": 1,
+  "best_epoch": 1,
+  "best_val_ap": 0.8291260908934839,
+  "best_val_auc": null,
+  "final_test_metrics": {
+    "ap": 0.3092137472768725,
+    "auc_or_mrr": 0.4258957289581318,
+    "hit_at_10": 0.586430816047696
+  },
+  "config": {
+    "dataset_name": "lastfm",
+    "seed": 42,
+    "structure": {
+      "topk": 100,
+      "alpha": 0.9,
+      "beta": 0.2
+    },
+    "time": {
+      "topk": 20,
+      "topk_sample_flag": "last",
+      "lr": 0.0001,
+      "wd": 5e-05,
+      "bs": 200
+    },
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace",
+    "native_dataset": "lastfm"
+  },
+  "paths": {
+    "time_summary_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/stages/time/summary.json",
+    "time_epoch_metrics_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/stages/time/epoch_metrics.csv",
+    "structure_summary_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/stages/structure/summary.json",
+    "val_structure_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/structure_score_cache/lastfm/val_topk_100_alpha_0.9_beta_0.2_mul_wo_norm",
+    "test_structure_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/structure_score_cache/lastfm/test_topk_100_alpha_0.9_beta_0.2_mul_wo_norm",
+    "val_time_data_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/time_processed_data/lastfm/Val_topk_20_flag_last_bs_200_numneg_1.pkl",
+    "test_time_data_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/time_processed_data/lastfm/Test_topk_20_flag_last_bs_200_numneg_99.pkl",
+    "structure_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/structure.log",
+    "time_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/time.log",
+    "hybrid_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/hybrid.log",
+    "selected_params": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/selected_params.json",
+    "structure_summary": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/stages/structure/summary.json",
+    "time_summary": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/stages/time/summary.json",
+    "epoch_metrics_csv": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/epoch_metrics.csv"
+  },
+  "wall_seconds": {
+    "prepare": 14.151888,
+    "build": 219.321248,
+    "hybrid": 65.493263,
+    "total": 388.622435,
+    "wrapper_structure": 65.298893,
+    "wrapper_time": 353.156945,
+    "wrapper_hybrid": 74.549292
+  },
+  "setup": {
+    "dataset_prepare": {
+      "dataset": "lastfm",
+      "native_dataset": "lastfm",
+      "source_path": "/home/phc/data/lastfm/edges.csv",
+      "target_path": "/home/wzq/TGN-benchmark/systems/EAGLE/data/lastfm/ml_lastfm.csv",
+      "rows": 1293103,
+      "ext_roll_counts": {
+        "0": 905172,
+        "1": 193965,
+        "2": 193966
+      },
+      "wall_sec": 7.5290944690023025
+    },
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace"
+  }
+}

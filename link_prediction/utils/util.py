@@ -63,32 +63,40 @@ def compute_metrics(
         num_edge = pred_pos.shape[0]
         num_neg = pred_neg.shape[0] // num_edge
 
-        mrr = 0
-        hr_list = [0] * len(k_list)
+        pred_pos_flat = pred_pos.detach().reshape(num_edge).to(device)
+        pred_neg_matrix = pred_neg.detach().reshape(num_neg, num_edge).transpose(0, 1).contiguous().to(device)
+        metric_batch_size = 8192
+        mrr_sum = 0.0
+        hr_counts = [0.0] * len(k_list)
 
-        for i in range(num_edge):
-            neg_samples = [pred_neg[j * num_edge + i] for j in range(num_neg)]
-            combined_scores = torch.tensor(
-                [pred_pos[i].item()] + [s.item() for s in neg_samples]
-            ).to(device)
+        for start in range(0, num_edge, metric_batch_size):
+            end = min(num_edge, start + metric_batch_size)
+            batch_pos = pred_pos_flat[start:end].unsqueeze(1)
+            batch_neg = pred_neg_matrix[start:end]
+            combined_scores = torch.cat([batch_pos, batch_neg], dim=1)
+            sorted_indices = torch.argsort(combined_scores, dim=1, descending=True)
+            positive_ranks = torch.argmax((sorted_indices == 0).to(torch.int64), dim=1) + 1
 
-            sorted_indices = torch.argsort(combined_scores, descending=True)
-            rank = (sorted_indices == 0).nonzero(as_tuple=True)[0].item() + 1
-
-            mrr += 1 / rank
+            mrr_sum += torch.sum(1.0 / positive_ranks.to(torch.float64)).item()
 
             for idx, k in enumerate(k_list):
-                if rank <= k:
-                    hr_list[idx] += 1
+                hr_counts[idx] += torch.sum(positive_ranks <= k).item()
 
-        mrr /= num_edge
-        hr_list = [hr / num_edge for hr in hr_list]
+        mrr = mrr_sum / num_edge
+        hr_list = [hr / num_edge for hr in hr_counts]
 
         return ap, mrr, hr_list
 
 
 class EarlyStopMonitor(object):
-    def __init__(self, max_round=5, higher_better=True, tolerance=1e-8):
+    def __init__(
+        self,
+        max_round=5,
+        higher_better=True,
+        tolerance=1e-8,
+        min_epoch_before_stop=0,
+        min_delta=0.0,
+    ):
         self.max_round = max_round
         self.num_round = 0
         self.epoch_count = 0
@@ -96,6 +104,8 @@ class EarlyStopMonitor(object):
         self.last_best = None
         self.higher_better = higher_better
         self.tolerance = tolerance
+        self.min_epoch_before_stop = max(0, int(min_epoch_before_stop))
+        self.min_delta = float(min_delta)
 
     def early_stop_check(self, curr_val):
         if not self.higher_better:
@@ -104,15 +114,22 @@ class EarlyStopMonitor(object):
         if self.last_best is None:
             self.last_best = curr_val
 
-        elif (curr_val - self.last_best) / np.abs(self.last_best) > self.tolerance:
-            self.last_best = curr_val
-            self.num_round = 0
-            self.best_epoch = self.epoch_count
         else:
-            self.num_round += 1
+            rel_delta = self.tolerance * max(np.abs(self.last_best), 1.0)
+            threshold = max(self.min_delta, rel_delta)
+            if (curr_val - self.last_best) > threshold:
+                self.last_best = curr_val
+                self.num_round = 0
+                self.best_epoch = self.epoch_count
+            else:
+                self.num_round += 1
 
         self.epoch_count += 1
 
+        if self.max_round <= 0:
+            return False
+        if self.epoch_count <= self.min_epoch_before_stop:
+            return False
         return self.num_round >= self.max_round
 
 

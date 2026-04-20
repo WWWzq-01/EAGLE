@@ -1,0 +1,13 @@
+{
+  "dataset": "wiki-talk",
+  "native_dataset": "wikitalk",
+  "source_path": "/home/phc/data/wiki-talk/edges.csv",
+  "target_path": "/home/wzq/TGN-benchmark/systems/EAGLE/data/wikitalk/ml_wikitalk.csv",
+  "rows": 7833140,
+  "ext_roll_counts": {
+    "0": 5483198,
+    "1": 1174971,
+    "2": 1174971
+  },
+  "wall_sec": 45.89698799799953
+}

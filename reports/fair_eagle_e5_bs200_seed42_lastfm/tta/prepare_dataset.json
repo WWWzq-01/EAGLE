@@ -1,0 +1,13 @@
+{
+  "dataset": "lastfm",
+  "native_dataset": "lastfm",
+  "source_path": "/home/phc/data/lastfm/edges.csv",
+  "target_path": "/home/wzq/TGN-benchmark/systems/EAGLE/data/lastfm/ml_lastfm.csv",
+  "rows": 1293103,
+  "ext_roll_counts": {
+    "0": 905172,
+    "1": 193965,
+    "2": 193966
+  },
+  "wall_sec": 7.518092810998496
+}

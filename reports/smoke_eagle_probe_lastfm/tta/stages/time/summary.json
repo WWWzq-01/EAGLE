@@ -1,0 +1,48 @@
+{
+  "system": "EAGLE-Time",
+  "model": "EAGLE",
+  "stage": "time",
+  "dataset": "lastfm",
+  "run_type": "tta",
+  "epochs_requested": 1,
+  "completed_epochs": 1,
+  "best_epoch": 1,
+  "best_val_ap": 0.7055836494383491,
+  "best_val_auc": null,
+  "final_test_metrics": {
+    "ap": 0.10449575629659481,
+    "auc_or_mrr": 0.23701672154159015,
+    "hit_at_10": 0.4077668612594709
+  },
+  "config": {
+    "dataset_name": "lastfm",
+    "batch_size": 200,
+    "topk": 20,
+    "topk_sample_flag": "last",
+    "num_epochs": 1,
+    "patience": 0,
+    "lr": 0.0001,
+    "weight_decay": 5e-05,
+    "num_layers": 1,
+    "hidden_dims": 100,
+    "gpu": 0,
+    "seed": 42,
+    "filename": "topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace"
+  },
+  "paths": {
+    "log_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/log_learn_time/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "best_model_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/saved_time_models/learn_time/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200.pth",
+    "val_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/time_score_cache/lastfm/val_topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "test_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/time_score_cache/lastfm/test_topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200",
+    "epoch_score_dir": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/smoke_eagle_probe_lastfm/tta/workspace/time_epoch_scores/lastfm/topk_20_flag_last_lr_0.0001_wd_5e-05_bs_200"
+  },
+  "wall_seconds": {
+    "prepare": 6.622794,
+    "train": 37.551977,
+    "val": 2.428621,
+    "test": 49.675437,
+    "total": 96.27883
+  },
+  "stop_reason": "max_epochs"
+}

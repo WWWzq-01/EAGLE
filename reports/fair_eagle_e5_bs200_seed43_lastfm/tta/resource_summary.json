@@ -1,0 +1,17 @@
+{
+  "pid": 62396,
+  "gpu_index": 0,
+  "poll_interval_s": 1.0,
+  "sample_count": 2292,
+  "start_time_unix_s": 1776593056.3305972,
+  "end_time_unix_s": 1776595554.0824084,
+  "duration_s": 2497.751811,
+  "peak_rss_gb": 12.62429,
+  "peak_vms_gb": 39.103096,
+  "peak_gpu_mem_mb": 9182.0,
+  "peak_gpu_util_percent": 57.0,
+  "avg_gpu_util_percent": 18.897514,
+  "peak_gpu_mem_util_percent": 14.0,
+  "avg_gpu_mem_util_percent": 3.566943,
+  "returncode": 0
+}

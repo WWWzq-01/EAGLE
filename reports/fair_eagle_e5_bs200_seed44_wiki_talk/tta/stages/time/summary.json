@@ -1,0 +1,48 @@
+{
+  "system": "EAGLE-Time",
+  "model": "EAGLE",
+  "stage": "time",
+  "dataset": "wikitalk",
+  "run_type": "tta",
+  "epochs_requested": 5,
+  "completed_epochs": 5,
+  "best_epoch": 4,
+  "best_val_ap": 0.907332403369826,
+  "best_val_auc": null,
+  "final_test_metrics": {
+    "ap": 0.5627919820614957,
+    "auc_or_mrr": 0.6365881696623558,
+    "hit_at_10": 0.8187116187632201
+  },
+  "config": {
+    "dataset_name": "wikitalk",
+    "batch_size": 200,
+    "topk": 30,
+    "topk_sample_flag": "last",
+    "num_epochs": 5,
+    "patience": 0,
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "num_layers": 1,
+    "hidden_dims": 100,
+    "gpu": 0,
+    "seed": 44,
+    "filename": "topk_30_flag_last_lr_0.001_wd_0.0_bs_200",
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace"
+  },
+  "paths": {
+    "log_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace/log_learn_time/wikitalk/topk_30_flag_last_lr_0.001_wd_0.0_bs_200",
+    "best_model_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace/saved_time_models/learn_time/wikitalk/topk_30_flag_last_lr_0.001_wd_0.0_bs_200.pth",
+    "val_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace/time_score_cache/wikitalk/val_topk_30_flag_last_lr_0.001_wd_0.0_bs_200",
+    "test_time_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace/time_score_cache/wikitalk/test_topk_30_flag_last_lr_0.001_wd_0.0_bs_200",
+    "epoch_score_dir": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed44_wiki_talk/tta/workspace/time_epoch_scores/wikitalk/topk_30_flag_last_lr_0.001_wd_0.0_bs_200"
+  },
+  "wall_seconds": {
+    "prepare": 17.557979,
+    "train": 1113.327259,
+    "val": 79.238405,
+    "test": 2411.453892,
+    "total": 3621.577535
+  },
+  "stop_reason": "max_epochs"
+}

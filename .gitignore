@@ -1,0 +1,6 @@
+__pycache__/
+data/
+shared_cache/
+reports/*/tta/*.log
+reports/*/tta/workspace/
+reports/smoke_eagle_probe_wikitalk_wiki_talk/

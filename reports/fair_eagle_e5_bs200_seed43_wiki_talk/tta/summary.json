@@ -1,0 +1,75 @@
+{
+  "system": "EAGLE",
+  "model": "EAGLE",
+  "dataset": "wiki-talk",
+  "run_type": "tta",
+  "epochs_requested": 5,
+  "completed_epochs": 5,
+  "best_epoch": 1,
+  "best_val_ap": 0.9602048195161466,
+  "best_val_auc": null,
+  "final_test_metrics": {
+    "ap": 0.6615477511153537,
+    "auc_or_mrr": 0.7505648751700491,
+    "hit_at_10": 0.8921524698270499
+  },
+  "config": {
+    "dataset_name": "wiki-talk",
+    "seed": 43,
+    "structure": {
+      "topk": 100,
+      "alpha": 0.5,
+      "beta": 0.5
+    },
+    "time": {
+      "topk": 30,
+      "topk_sample_flag": "last",
+      "lr": 0.001,
+      "wd": 0.0,
+      "bs": 200
+    },
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace",
+    "native_dataset": "wikitalk"
+  },
+  "paths": {
+    "time_summary_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/stages/time/summary.json",
+    "time_epoch_metrics_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/stages/time/epoch_metrics.csv",
+    "structure_summary_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/stages/structure/summary.json",
+    "val_structure_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace/structure_score_cache/wikitalk/val_topk_100_alpha_0.5_beta_0.5_mul_wo_norm",
+    "test_structure_score_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace/structure_score_cache/wikitalk/test_topk_100_alpha_0.5_beta_0.5_mul_wo_norm",
+    "val_time_data_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace/time_processed_data/wikitalk/Val_topk_30_flag_last_bs_200_numneg_1.pkl",
+    "test_time_data_path": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace/time_processed_data/wikitalk/Test_topk_30_flag_last_bs_200_numneg_99.pkl",
+    "structure_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/structure.log",
+    "time_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/time.log",
+    "hybrid_log": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/hybrid.log",
+    "selected_params": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/selected_params.json",
+    "structure_summary": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/stages/structure/summary.json",
+    "time_summary": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/stages/time/summary.json",
+    "epoch_metrics_csv": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/epoch_metrics.csv"
+  },
+  "wall_seconds": {
+    "prepare": 365.272956,
+    "build": 1300.349719,
+    "hybrid": 911.059085,
+    "total": 6911.580453,
+    "wrapper_structure": 2607.857713,
+    "wrapper_time": 5613.769283,
+    "wrapper_hybrid": 940.200526
+  },
+  "setup": {
+    "dataset_prepare": {
+      "dataset": "wiki-talk",
+      "native_dataset": "wikitalk",
+      "source_path": "/home/phc/data/wiki-talk/edges.csv",
+      "target_path": "/home/wzq/TGN-benchmark/systems/EAGLE/data/wikitalk/ml_wikitalk.csv",
+      "rows": 7833140,
+      "ext_roll_counts": {
+        "0": 5483198,
+        "1": 1174971,
+        "2": 1174971
+      },
+      "wall_sec": 46.076592326004175
+    },
+    "workspace_root": "/home/wzq/TGN-benchmark/systems/EAGLE/reports/fair_eagle_e5_bs200_seed43_wiki_talk/tta/workspace"
+  }
+}

@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import pandas as pd
+from pathlib import Path
 
 class Data:
     def __init__(self, sources, destinations, timestamps, edge_idxs, labels):
@@ -89,12 +90,11 @@ def get_data_transductive(dataset_name, use_validation=False):
     elif dataset_name in other_datasets:
         dir = "benchtemp_datasets"
 
-    graph_df = pd.read_csv(f"../{dir}/{dataset_name}/ml_{dataset_name}.csv")
+    graph_path = Path("..") / dir / dataset_name / f"ml_{dataset_name}.csv"
+    graph_df = pd.read_csv(graph_path)
 
     # edge_features = np.load('../data/{}/ml_{}.npy'.format(dataset_name,dataset_name))
     # node_features = np.load('../data/{}/ml_{}_node.npy'.format(dataset_name,dataset_name))
-
-    val_time, test_time = list(np.quantile(graph_df.ts, [0.70, 0.85]))
 
     sources = graph_df.u.values
     destinations = graph_df.i.values
@@ -108,14 +108,24 @@ def get_data_transductive(dataset_name, use_validation=False):
 
     random.seed(2024)
 
-    train_mask = timestamps <= val_time if use_validation else timestamps <= test_time
-    test_mask = timestamps > test_time
-
-    val_mask = (
-        np.logical_and(timestamps <= test_time, timestamps > val_time)
-        if use_validation
-        else test_mask
-    )
+    if "ext_roll" in graph_df.columns:
+        split_ids = graph_df.ext_roll.values.astype(np.int64)
+        train_mask = split_ids == 0
+        if use_validation:
+            val_mask = split_ids == 1
+            test_mask = split_ids == 2
+        else:
+            val_mask = split_ids >= 1
+            test_mask = split_ids >= 1
+    else:
+        val_time, test_time = list(np.quantile(graph_df.ts, [0.70, 0.85]))
+        train_mask = timestamps <= val_time if use_validation else timestamps <= test_time
+        test_mask = timestamps > test_time
+        val_mask = (
+            np.logical_and(timestamps <= test_time, timestamps > val_time)
+            if use_validation
+            else test_mask
+        )
 
     full_data = Data(sources, destinations, timestamps, edge_idxs, labels)
 
