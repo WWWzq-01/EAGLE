@@ -78,6 +78,9 @@ DATA = args.dataset_name
 train_bs = args.batch_size
 val_bs = args.batch_size
 test_bs = args.batch_size
+TRAIN_NUM_NEG_PER_POS = 1
+VAL_NUM_NEG_PER_POS = 1
+TEST_NUM_NEG_PER_POS = 99
 
 filename = "topk_" + str(args.topk) + "_alpha_" + str(args.alpha) + "_beta_" + str(args.beta)
 shared_cache_key = filename + "_" + args.sim + "_bs_" + str(args.batch_size)
@@ -206,7 +209,7 @@ def get_cached_tppr_status(
         train_neg_edge_sampler,
         dataset_name,
         train_bs,
-        num_neg=1,
+        num_neg=TRAIN_NUM_NEG_PER_POS,
         rng=rng,
     )
 
@@ -220,7 +223,7 @@ def get_cached_tppr_status(
         val_neg_edge_sampler,
         dataset_name,
         val_bs,
-        num_neg=1,
+        num_neg=VAL_NUM_NEG_PER_POS,
         rng=rng,
     )
 
@@ -234,7 +237,7 @@ def get_cached_tppr_status(
         test_neg_edge_sampler,
         dataset_name,
         test_bs,
-        num_neg=99,
+        num_neg=TEST_NUM_NEG_PER_POS,
         rng=rng,
     )
 
@@ -264,21 +267,21 @@ print(f"#Edge: train {n_train}, val {n_val}, test {n_test}")
 train_neg_edge_sampler = NegEdgeSampler(
     destinations=train_data.destinations,
     full_destinations=train_data.destinations,
-    num_neg=1,
+    num_neg=TRAIN_NUM_NEG_PER_POS,
     device=device,
     seed=2024,
 )
 val_neg_edge_sampler = NegEdgeSampler(
     destinations=val_data.destinations,
     full_destinations=full_data.destinations,
-    num_neg=1,
+    num_neg=VAL_NUM_NEG_PER_POS,
     device=device,
     seed=2025,
 )
 test_neg_edge_sampler = NegEdgeSampler(
     destinations=test_data.destinations,
     full_destinations=full_data.destinations,
-    num_neg=99,
+    num_neg=TEST_NUM_NEG_PER_POS,
     device=device,
     seed=2026,
 )
@@ -301,14 +304,14 @@ val_stats, test_stats, t_train, t_val, t_test, mem_train, mem_val, mem_test = ge
 )
 
 with torch.no_grad():
-    pos_score_val, neg_score_val = get_scores(val_data, val_stats, cached_neg_samples=1)
+    pos_score_val, neg_score_val = get_scores(val_data, val_stats, cached_neg_samples=VAL_NUM_NEG_PER_POS)
     y_pred = torch.cat([pos_score_val, neg_score_val], dim=0).cpu().detach()
     y_true = torch.cat([torch.ones_like(pos_score_val), torch.zeros_like(neg_score_val)], dim=0).cpu().detach()
     val_ap = average_precision_score(y_true, y_pred)
     print(f"Val: ap: {val_ap:.4f}")
     sys.stdout.flush()
 
-    pos_score_test, neg_score_test = get_scores(test_data, test_stats, cached_neg_samples=99)
+    pos_score_test, neg_score_test = get_scores(test_data, test_stats, cached_neg_samples=TEST_NUM_NEG_PER_POS)
     k_list = [10]
     test_ap, test_mrr, test_hr_list = compute_metrics(pos_score_test, neg_score_test, device, k_list=k_list)
 
@@ -337,6 +340,9 @@ if REPORT_DIR is not None:
         "config": {
             "dataset_name": DATA,
             "batch_size": args.batch_size,
+            "train_num_neg_per_pos": TRAIN_NUM_NEG_PER_POS,
+            "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
+            "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
             "topk": args.topk,
             "alpha": args.alpha,
             "beta": args.beta,
@@ -349,6 +355,12 @@ if REPORT_DIR is not None:
         },
         "best_val_ap": float(val_ap),
         "best_val_auc": None,
+        "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
+        "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
+        "metric_protocol_note": (
+            "Validation AP uses 1 negative per positive while test AP uses 99; "
+            "the two AP values are not directly comparable as a val-test gap."
+        ),
         "final_test_metrics": {
             "ap": float(test_ap),
             "auc_or_mrr": float(test_mrr),

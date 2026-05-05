@@ -81,6 +81,9 @@ device = torch.device(f"cuda:{args.gpu}")
 set_random_seed(args.seed)
 DATA = args.dataset_name
 args.ignore_zero = True
+TRAIN_NUM_NEG_PER_POS = 1
+VAL_NUM_NEG_PER_POS = 1
+TEST_NUM_NEG_PER_POS = 99
 
 filename = (
     "topk_"
@@ -226,21 +229,21 @@ print(f"#Edge: train {n_train}, val {n_val}, test {n_test}")
 train_neg_edge_sampler = NegEdgeSampler(
     destinations=train_data.destinations,
     full_destinations=train_data.destinations,
-    num_neg=1,
+    num_neg=TRAIN_NUM_NEG_PER_POS,
     device=device,
     seed=2024,
 )
 val_neg_edge_sampler = NegEdgeSampler(
     destinations=val_data.destinations,
     full_destinations=full_data.destinations,
-    num_neg=1,
+    num_neg=VAL_NUM_NEG_PER_POS,
     device=device,
     seed=2025,
 )
 test_neg_edge_sampler = NegEdgeSampler(
     destinations=test_data.destinations,
     full_destinations=full_data.destinations,
-    num_neg=99,
+    num_neg=TEST_NUM_NEG_PER_POS,
     device=device,
     seed=2026,
 )
@@ -505,9 +508,15 @@ train_bs = args.batch_size
 val_bs = args.batch_size
 test_bs = args.batch_size
 
-train_filepath = processed_data_dir / f"Train_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{train_bs}_numneg_1.pkl"
-val_filepath = processed_data_dir / f"Val_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{val_bs}_numneg_1.pkl"
-test_filepath = processed_data_dir / f"Test_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{test_bs}_numneg_99.pkl"
+train_filepath = processed_data_dir / (
+    f"Train_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{train_bs}_numneg_{TRAIN_NUM_NEG_PER_POS}.pkl"
+)
+val_filepath = processed_data_dir / (
+    f"Val_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{val_bs}_numneg_{VAL_NUM_NEG_PER_POS}.pkl"
+)
+test_filepath = processed_data_dir / (
+    f"Test_topk_{args.topk}_flag_{args.topk_sample_flag}_bs_{test_bs}_numneg_{TEST_NUM_NEG_PER_POS}.pkl"
+)
 
 prepare_started = time.perf_counter()
 train_num_batch, train_delta_times_list, train_all_inds_list, train_batch_size_list = process_time_data(
@@ -515,7 +524,7 @@ train_num_batch, train_delta_times_list, train_all_inds_list, train_batch_size_l
     finder,
     train_data,
     batch_size=train_bs,
-    num_neg=1,
+    num_neg=TRAIN_NUM_NEG_PER_POS,
     filepath=train_filepath,
 )
 val_num_batch, val_delta_times_list, val_all_inds_list, val_batch_size_list = process_time_data(
@@ -523,7 +532,7 @@ val_num_batch, val_delta_times_list, val_all_inds_list, val_batch_size_list = pr
     finder,
     val_data,
     batch_size=val_bs,
-    num_neg=1,
+    num_neg=VAL_NUM_NEG_PER_POS,
     filepath=val_filepath,
 )
 test_num_batch, test_delta_times_list, test_all_inds_list, test_batch_size_list = process_time_data(
@@ -531,7 +540,7 @@ test_num_batch, test_delta_times_list, test_all_inds_list, test_batch_size_list 
     finder,
     test_data,
     batch_size=test_bs,
-    num_neg=99,
+    num_neg=TEST_NUM_NEG_PER_POS,
     filepath=test_filepath,
 )
 prepare_wall_s = time.perf_counter() - prepare_started
@@ -566,7 +575,7 @@ for epoch_idx in range(args.num_epochs):
         optimizer,
         criterion,
         log_path,
-        num_neg=1,
+        num_neg=TRAIN_NUM_NEG_PER_POS,
         num_batch=train_num_batch,
         delta_times_list=train_delta_times_list,
         all_inds_list=train_all_inds_list,
@@ -583,7 +592,7 @@ for epoch_idx in range(args.num_epochs):
             None,
             None,
             log_path,
-            num_neg=1,
+            num_neg=VAL_NUM_NEG_PER_POS,
             num_batch=val_num_batch,
             delta_times_list=val_delta_times_list,
             all_inds_list=val_all_inds_list,
@@ -603,7 +612,7 @@ for epoch_idx in range(args.num_epochs):
                 None,
                 None,
                 log_path,
-                num_neg=99,
+                num_neg=TEST_NUM_NEG_PER_POS,
                 num_batch=test_num_batch,
                 delta_times_list=test_delta_times_list,
                 all_inds_list=test_all_inds_list,
@@ -670,7 +679,7 @@ if final_test_result is None:
             None,
             None,
             log_path,
-            num_neg=99,
+            num_neg=TEST_NUM_NEG_PER_POS,
             num_batch=test_num_batch,
             delta_times_list=test_delta_times_list,
             all_inds_list=test_all_inds_list,
@@ -705,14 +714,16 @@ mem_train = peak_train_memory_mb
 
 print(
     f"\nNum_epochs: {num_epo}, total_train_time: {t_train:4f}, total_val_time: {t_val:4f}, "
-    f"total_test_time_neg99: {t_epoch_test:4f}, memory_train: {mem_train}, memory_val: {val_result['allocated_memory']}, "
+    f"total_test_time_neg{TEST_NUM_NEG_PER_POS}: {t_epoch_test:4f}, "
+    f"memory_train: {mem_train}, memory_val: {val_result['allocated_memory']}, "
     f"memory_test: {mem_test}."
 )
 
 with log_path.open("a", encoding="utf-8") as log_file:
     log_file.write(
         f"Num_epochs: {num_epo}, total_train_time: {t_train:4f}, total_val_time: {t_val:4f}, "
-        f"total_test_time_neg99: {t_epoch_test:4f}, memory_val: {val_result['allocated_memory']}, "
+        f"total_test_time_neg{TEST_NUM_NEG_PER_POS}: {t_epoch_test:4f}, "
+        f"memory_val: {val_result['allocated_memory']}, "
         f"memory_test: {mem_test}."
     )
 
@@ -728,6 +739,12 @@ if REPORT_DIR is not None:
         "best_epoch": best_epoch,
         "best_val_ap": best_val_ap,
         "best_val_auc": None,
+        "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
+        "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
+        "metric_protocol_note": (
+            "Validation AP uses 1 negative per positive while test AP uses 99; "
+            "the two AP values are not directly comparable as a val-test gap."
+        ),
         "final_test_metrics": {
             "ap": best_test_ap,
             "auc_or_mrr": best_test_mrr,
@@ -736,6 +753,9 @@ if REPORT_DIR is not None:
         "config": {
             "dataset_name": DATA,
             "batch_size": args.batch_size,
+            "train_num_neg_per_pos": TRAIN_NUM_NEG_PER_POS,
+            "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
+            "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
             "topk": args.topk,
             "topk_sample_flag": args.topk_sample_flag,
             "num_epochs": args.num_epochs,

@@ -359,6 +359,12 @@ if benchmark_mode:
         "best_epoch": int(best_row["epoch"]),
         "best_val_ap": float(best_row["val_ap"]),
         "best_val_auc": None,
+        "val_num_neg_per_pos": val_num_neg_per_pos,
+        "test_num_neg_per_pos": test_num_neg_per_pos,
+        "metric_protocol_note": (
+            "Validation AP uses 1 negative per positive while test AP uses 99; "
+            "the two AP values are not directly comparable as a val-test gap."
+        ),
         "final_test_metrics": {
             "ap": float(best_row["test_ap"]),
             "auc_or_mrr": float(best_row["test_auc"]),
@@ -369,6 +375,8 @@ if benchmark_mode:
             "seed": args.seed,
             "structure": params["structure"],
             "time": params["time"],
+            "val_num_neg_per_pos": val_num_neg_per_pos,
+            "test_num_neg_per_pos": test_num_neg_per_pos,
             "workspace_root": str(WORKSPACE_ROOT),
         },
         "paths": {
@@ -459,6 +467,12 @@ else:
             "best_epoch": 1,
             "best_val_ap": best_val_ap,
             "best_val_auc": None,
+            "val_num_neg_per_pos": val_num_neg_per_pos,
+            "test_num_neg_per_pos": test_num_neg_per_pos,
+            "metric_protocol_note": (
+                "Validation AP uses 1 negative per positive while test AP uses 99; "
+                "the two AP values are not directly comparable as a val-test gap."
+            ),
             "final_test_metrics": {
                 "ap": float(test_ap),
                 "auc_or_mrr": float(test_mrr),
@@ -469,6 +483,8 @@ else:
                 "seed": args.seed,
                 "structure": params["structure"],
                 "time": params["time"],
+                "val_num_neg_per_pos": val_num_neg_per_pos,
+                "test_num_neg_per_pos": test_num_neg_per_pos,
                 "workspace_root": str(WORKSPACE_ROOT),
             },
             "paths": {
