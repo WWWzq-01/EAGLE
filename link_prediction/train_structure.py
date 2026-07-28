@@ -43,6 +43,7 @@ parser.add_argument("--seed", type=int, default=2024)
 parser.add_argument("--workspace_root", type=str, default=".")
 parser.add_argument("--report_dir", type=str, default="")
 parser.add_argument("--shared_raw_cache_base", type=str, default="")
+parser.add_argument("--execution_stage", choices=["all", "validation", "test"], default="all")
 
 args = parser.parse_args()
 
@@ -199,47 +200,66 @@ def get_cached_tppr_status(
     cache_filename,
 ):
     train_file = structure_score_dir / f"train_{cache_filename}"
-    rng = np.random.RandomState(args.seed)
-    train_stats, t_cal_train_tppr, mem_train = load_or_materialize_tppr_stats(
-        "Train",
-        train_file,
-        stage_raw_cache_path(shared_structure_raw_root, "train"),
-        finder,
-        train_data,
-        train_neg_edge_sampler,
-        dataset_name,
-        train_bs,
-        num_neg=TRAIN_NUM_NEG_PER_POS,
-        rng=rng,
-    )
-
     val_file = structure_score_dir / f"val_{cache_filename}"
-    val_stats, t_cal_val_tppr, mem_val = load_or_materialize_tppr_stats(
-        "Val",
-        val_file,
-        stage_raw_cache_path(shared_structure_raw_root, "val"),
-        finder,
-        val_data,
-        val_neg_edge_sampler,
-        dataset_name,
-        val_bs,
-        num_neg=VAL_NUM_NEG_PER_POS,
-        rng=rng,
-    )
-
     test_file = structure_score_dir / f"test_{cache_filename}"
-    test_stats, t_cal_test_tppr, mem_test = load_or_materialize_tppr_stats(
-        "Test",
-        test_file,
-        stage_raw_cache_path(shared_structure_raw_root, "test"),
-        finder,
-        test_data,
-        test_neg_edge_sampler,
-        dataset_name,
-        test_bs,
-        num_neg=TEST_NUM_NEG_PER_POS,
-        rng=rng,
-    )
+    rng = np.random.RandomState(args.seed)
+    train_stats = None
+    val_stats = None
+    test_stats = None
+    t_cal_train_tppr = 0.0
+    t_cal_val_tppr = 0.0
+    t_cal_test_tppr = 0.0
+    mem_train = 0.0
+    mem_val = 0.0
+    mem_test = 0.0
+
+    if args.execution_stage in {"all", "validation"}:
+        train_stats, t_cal_train_tppr, mem_train = load_or_materialize_tppr_stats(
+            "Train",
+            train_file,
+            stage_raw_cache_path(shared_structure_raw_root, "train"),
+            finder,
+            train_data,
+            train_neg_edge_sampler,
+            dataset_name,
+            train_bs,
+            num_neg=TRAIN_NUM_NEG_PER_POS,
+            rng=rng,
+        )
+        val_stats, t_cal_val_tppr, mem_val = load_or_materialize_tppr_stats(
+            "Val",
+            val_file,
+            stage_raw_cache_path(shared_structure_raw_root, "val"),
+            finder,
+            val_data,
+            val_neg_edge_sampler,
+            dataset_name,
+            val_bs,
+            num_neg=VAL_NUM_NEG_PER_POS,
+            rng=rng,
+        )
+    else:
+        for prerequisite_path in (train_file, val_file):
+            if not prerequisite_path.exists():
+                raise FileNotFoundError(
+                    f"test structure materialization requires validation-stage cache: {prerequisite_path}"
+                )
+            prerequisite_payload = load_pickle(prerequisite_path)
+            advance_uniform_rng(rng, prerequisite_payload[2].shape)
+
+    if args.execution_stage in {"all", "test"}:
+        test_stats, t_cal_test_tppr, mem_test = load_or_materialize_tppr_stats(
+            "Test",
+            test_file,
+            stage_raw_cache_path(shared_structure_raw_root, "test"),
+            finder,
+            test_data,
+            test_neg_edge_sampler,
+            dataset_name,
+            test_bs,
+            num_neg=TEST_NUM_NEG_PER_POS,
+            rng=rng,
+        )
 
     return val_stats, test_stats, t_cal_train_tppr, t_cal_val_tppr, t_cal_test_tppr, mem_train, mem_val, mem_test
 
@@ -291,6 +311,7 @@ tppr_finder.reset_tppr()
 
 cache_filename = "topk_" + str(args.topk) + "_alpha_" + str(args.alpha) + "_beta_" + str(args.beta) + "_" + args.sim
 
+structure_stage_started = time.perf_counter()
 val_stats, test_stats, t_train, t_val, t_test, mem_train, mem_val, mem_test = get_cached_tppr_status(
     tppr_finder,
     DATA,
@@ -302,33 +323,50 @@ val_stats, test_stats, t_train, t_val, t_test, mem_train, mem_val, mem_test = ge
     test_neg_edge_sampler,
     cache_filename,
 )
+structure_stage_wall_s = time.perf_counter() - structure_stage_started
 
+val_ap = None
+test_ap = None
+test_mrr = None
+test_hr_list = []
 with torch.no_grad():
-    pos_score_val, neg_score_val = get_scores(val_data, val_stats, cached_neg_samples=VAL_NUM_NEG_PER_POS)
-    y_pred = torch.cat([pos_score_val, neg_score_val], dim=0).cpu().detach()
-    y_true = torch.cat([torch.ones_like(pos_score_val), torch.zeros_like(neg_score_val)], dim=0).cpu().detach()
-    val_ap = average_precision_score(y_true, y_pred)
-    print(f"Val: ap: {val_ap:.4f}")
-    sys.stdout.flush()
+    if val_stats is not None:
+        pos_score_val, neg_score_val = get_scores(
+            val_data, val_stats, cached_neg_samples=VAL_NUM_NEG_PER_POS
+        )
+        y_pred = torch.cat([pos_score_val, neg_score_val], dim=0).cpu().detach()
+        y_true = torch.cat(
+            [torch.ones_like(pos_score_val), torch.zeros_like(neg_score_val)], dim=0
+        ).cpu().detach()
+        val_ap = float(average_precision_score(y_true, y_pred))
+        print(f"Val: ap: {val_ap:.4f}")
+        sys.stdout.flush()
 
-    pos_score_test, neg_score_test = get_scores(test_data, test_stats, cached_neg_samples=TEST_NUM_NEG_PER_POS)
-    k_list = [10]
-    test_ap, test_mrr, test_hr_list = compute_metrics(pos_score_test, neg_score_test, device, k_list=k_list)
-
-    print(
-        f"Test: ap: {test_ap:.4f}, mrr: {test_mrr:.4f}, "
-        + ", ".join([f"hr@{k}: {hr:.4f}" for k, hr in zip(k_list, test_hr_list)])
-    )
-
-    with filepath.open("a", encoding="utf-8") as log_file:
-        log_file.write(f"Val ap = {val_ap:.4f}\n")
-        log_file.write(
-            f"Test ap = {test_ap:.4f}, Test mrr = {test_mrr:.4f}, "
-            + ", ".join([f"hr@{k} = {hr:.4f}" for k, hr in zip(k_list, test_hr_list)])
+    if args.execution_stage == "all":
+        assert test_stats is not None
+        pos_score_test, neg_score_test = get_scores(
+            test_data, test_stats, cached_neg_samples=TEST_NUM_NEG_PER_POS
+        )
+        k_list = [10]
+        test_ap, test_mrr, test_hr_list = compute_metrics(
+            pos_score_test, neg_score_test, device, k_list=k_list
+        )
+        print(
+            f"Test: ap: {test_ap:.4f}, mrr: {test_mrr:.4f}, "
+            + ", ".join([f"hr@{k}: {hr:.4f}" for k, hr in zip(k_list, test_hr_list)])
         )
 
-    print(f"Results have been save at {filename}!")
-    sys.stdout.flush()
+    with filepath.open("a", encoding="utf-8") as log_file:
+        if val_ap is not None:
+            log_file.write(f"Val ap = {val_ap:.4f}\n")
+        if test_ap is not None and test_mrr is not None:
+            log_file.write(
+                f"Test ap = {test_ap:.4f}, Test mrr = {test_mrr:.4f}, "
+                + ", ".join([f"hr@{k} = {hr:.4f}" for k, hr in zip([10], test_hr_list)])
+            )
+
+print(f"Structure {args.execution_stage} stage has completed for {filename}.")
+sys.stdout.flush()
 
 if REPORT_DIR is not None:
     summary_payload = {
@@ -352,8 +390,9 @@ if REPORT_DIR is not None:
             "workspace_root": str(WORKSPACE_ROOT),
             "cache_filename": cache_filename,
             "shared_cache_key": shared_cache_key,
+            "execution_stage": args.execution_stage,
         },
-        "best_val_ap": float(val_ap),
+        "best_val_ap": val_ap,
         "best_val_auc": None,
         "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
         "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
@@ -362,10 +401,11 @@ if REPORT_DIR is not None:
             "the two AP values are not directly comparable as a val-test gap."
         ),
         "final_test_metrics": {
-            "ap": float(test_ap),
-            "auc_or_mrr": float(test_mrr),
+            "ap": float(test_ap) if test_ap is not None else None,
+            "auc_or_mrr": float(test_mrr) if test_mrr is not None else None,
             "hit_at_10": float(test_hr_list[0]) if len(test_hr_list) > 0 else None,
         },
+        "test_score_materialization_count": 1 if args.execution_stage in {"all", "test"} else 0,
         "paths": {
             "log_path": str(filepath),
             "train_cache_path": str(structure_score_dir / f"train_{cache_filename}"),
@@ -377,7 +417,10 @@ if REPORT_DIR is not None:
             "train": round(float(t_train), 6),
             "val": round(float(t_val), 6),
             "test": round(float(t_test), 6),
-            "total": round(float(t_train + t_val + t_test), 6),
+            "test_materialization": (
+                round(structure_stage_wall_s, 6) if args.execution_stage == "test" else 0.0
+            ),
+            "total": round(structure_stage_wall_s, 6),
         },
         "memory_mb": {
             "train": float(mem_train),

@@ -18,6 +18,7 @@ from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
 from utils.data_processing import get_data_transductive
+from utils.hybrid_evaluation import prepare_hybrid_batches, search_best_yita
 from utils.model import Mixer_per_node
 from utils.util import EarlyStopMonitor, NegEdgeSampler, compute_metrics, print_model_info, set_random_seed
 
@@ -52,11 +53,24 @@ parser.add_argument("--report_dir", type=str, default="")
 parser.add_argument("--save_epoch_score_cache", action="store_true")
 parser.add_argument("--min_epoch_before_stop", type=int, default=0)
 parser.add_argument("--early_stop_min_delta", type=float, default=0.0)
+parser.add_argument("--validation_lifecycle_v1", action="store_true")
+parser.add_argument("--val_structure_score_path", type=str, default="")
 
 args = parser.parse_args()
 
 WORKSPACE_ROOT = Path(args.workspace_root).resolve()
 REPORT_DIR = Path(args.report_dir).resolve() if args.report_dir else None
+VAL_STRUCTURE_SCORE_PATH = (
+    Path(args.val_structure_score_path).resolve() if args.val_structure_score_path else None
+)
+
+if args.validation_lifecycle_v1:
+    if REPORT_DIR is None:
+        raise ValueError("--validation_lifecycle_v1 requires --report_dir")
+    if VAL_STRUCTURE_SCORE_PATH is None or not VAL_STRUCTURE_SCORE_PATH.exists():
+        raise FileNotFoundError(
+            "--validation_lifecycle_v1 requires an existing --val_structure_score_path"
+        )
 
 
 def dump_json(path: Path, payload: Dict[str, object]) -> None:
@@ -391,6 +405,7 @@ def run(
     ap_list, mrr_list, hit_list = [], [], []
     t_epo = 0.0
     allocated_memory = 0.0
+    allocated_memory_bytes = 0
     loss_value = None
 
     all_pos_score = []
@@ -415,7 +430,9 @@ def run(
                 num_neg,
             )
 
-        mem = torch.cuda.max_memory_allocated(device) / (1024**2)
+        mem_bytes = int(torch.cuda.max_memory_allocated(device))
+        mem = mem_bytes / (1024**2)
+        allocated_memory_bytes = max(allocated_memory_bytes, mem_bytes)
         allocated_memory = max(allocated_memory, mem)
         t_epo += time.time() - t1
 
@@ -429,14 +446,17 @@ def run(
             optimizer.step()
             loss_value = loss.item()
             t_epo += time.time() - t2
-        elif mode == "Val":
+        elif mode in {"Val", "TestScore"}:
             with torch.no_grad():
                 all_pos_score.append(pos_score.sigmoid().cpu())
                 all_neg_score.append(neg_score.sigmoid().cpu())
-                y_pred = torch.cat([pos_score, neg_score], dim=0).sigmoid().cpu().detach()
-                y_true = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)], dim=0).cpu().detach()
-                ap = average_precision_score(y_true, y_pred)
-                ap_list.append(ap)
+                if mode == "Val":
+                    y_pred = torch.cat([pos_score, neg_score], dim=0).sigmoid().cpu().detach()
+                    y_true = torch.cat(
+                        [torch.ones_like(pos_score), torch.zeros_like(neg_score)], dim=0
+                    ).cpu().detach()
+                    ap = average_precision_score(y_true, y_pred)
+                    ap_list.append(ap)
         elif mode == "Test":
             with torch.no_grad():
                 all_pos_score.append(pos_score.sigmoid().cpu())
@@ -455,6 +475,7 @@ def run(
             "loss": loss_value,
             "t_epo": t_epo,
             "allocated_memory": allocated_memory,
+            "allocated_memory_bytes": allocated_memory_bytes,
             "ap": None,
             "mrr": None,
             "hit_at_10": None,
@@ -469,7 +490,22 @@ def run(
             "loss": None,
             "t_epo": t_epo,
             "allocated_memory": allocated_memory,
+            "allocated_memory_bytes": allocated_memory_bytes,
             "ap": ap,
+            "mrr": None,
+            "hit_at_10": None,
+            "pos_scores": all_pos_score,
+            "neg_scores": all_neg_score,
+        }
+
+    if mode == "TestScore":
+        print(f"Epoch{epoch}-{mode}: time: {t_epo}, memory used: {allocated_memory}")
+        return {
+            "loss": None,
+            "t_epo": t_epo,
+            "allocated_memory": allocated_memory,
+            "allocated_memory_bytes": allocated_memory_bytes,
+            "ap": None,
             "mrr": None,
             "hit_at_10": None,
             "pos_scores": all_pos_score,
@@ -496,6 +532,7 @@ def run(
         "loss": None,
         "t_epo": t_epo,
         "allocated_memory": allocated_memory,
+        "allocated_memory_bytes": allocated_memory_bytes,
         "ap": ap,
         "mrr": mrr,
         "hit_at_10": float(mean_hr[0]) if len(mean_hr) > 0 else None,
@@ -535,15 +572,26 @@ val_num_batch, val_delta_times_list, val_all_inds_list, val_batch_size_list = pr
     num_neg=VAL_NUM_NEG_PER_POS,
     filepath=val_filepath,
 )
-test_num_batch, test_delta_times_list, test_all_inds_list, test_batch_size_list = process_time_data(
-    "Test",
-    finder,
-    test_data,
-    batch_size=test_bs,
-    num_neg=TEST_NUM_NEG_PER_POS,
-    filepath=test_filepath,
-)
+test_num_batch = None
+test_delta_times_list = None
+test_all_inds_list = None
+test_batch_size_list = None
+if not args.validation_lifecycle_v1:
+    test_num_batch, test_delta_times_list, test_all_inds_list, test_batch_size_list = process_time_data(
+        "Test",
+        finder,
+        test_data,
+        batch_size=test_bs,
+        num_neg=TEST_NUM_NEG_PER_POS,
+        filepath=test_filepath,
+    )
 prepare_wall_s = time.perf_counter() - prepare_started
+
+val_structure_score = None
+if args.validation_lifecycle_v1:
+    assert VAL_STRUCTURE_SCORE_PATH is not None
+    with VAL_STRUCTURE_SCORE_PATH.open("rb") as structure_file:
+        val_structure_score = pickle.load(structure_file)[2]
 
 num_epo = 0
 t_train = 0.0
@@ -560,14 +608,20 @@ best_epoch_test_metrics: Optional[Dict[str, object]] = None
 best_val_score_path: Optional[Path] = None
 best_test_score_path: Optional[Path] = None
 best_val_scores = None
+best_hybrid_val_ap = float("-inf")
+best_yita: Optional[float] = None
 cumulative_train_wall_s = 0.0
 cumulative_epoch_wall_s = 0.0
 peak_train_memory_mb = 0.0
+process_peak_hbm_bytes = int(torch.cuda.max_memory_allocated(device))
+final_test_score_wall_s = 0.0
 
 for epoch_idx in range(args.num_epochs):
     num_epo += 1
     epoch_number = epoch_idx + 1
+    epoch_started = time.perf_counter()
 
+    train_started = time.perf_counter()
     train_result = run(
         model,
         "Train",
@@ -581,9 +635,11 @@ for epoch_idx in range(args.num_epochs):
         all_inds_list=train_all_inds_list,
         batch_size_list=train_batch_size_list,
     )
+    train_loop_wall_s = time.perf_counter() - train_started
     t_train += train_result["t_epo"]
     peak_train_memory_mb = max(peak_train_memory_mb, float(train_result["allocated_memory"]))
 
+    validation_started = time.perf_counter()
     with torch.no_grad():
         val_result = run(
             model,
@@ -598,69 +654,140 @@ for epoch_idx in range(args.num_epochs):
             all_inds_list=val_all_inds_list,
             batch_size_list=val_batch_size_list,
         )
+
+    hybrid_validation_wall_s = 0.0
+    hybrid_val_ap = float(val_result["ap"])
+    epoch_best_yita: Optional[float] = None
+    if args.validation_lifecycle_v1:
+        assert val_structure_score is not None
+        hybrid_started = time.perf_counter()
+        prepared_val_batches = prepare_hybrid_batches(
+            val_data,
+            val_bs,
+            val_result["pos_scores"],
+            val_result["neg_scores"],
+            val_structure_score,
+            val_delta_times_list,
+            val_all_inds_list,
+            VAL_NUM_NEG_PER_POS,
+            args.topk,
+            device,
+        )
+        epoch_best_yita, hybrid_val_ap = search_best_yita(prepared_val_batches)
+        hybrid_validation_wall_s = time.perf_counter() - hybrid_started
+    validation_compute_wall_s = time.perf_counter() - validation_started
     t_val += val_result["t_epo"]
 
     test_result = None
     val_score_path = None
     test_score_path = None
-    if save_epoch_scores:
-        with torch.no_grad():
-            test_result = run(
-                model,
-                "Test",
-                epoch_number,
-                None,
-                None,
-                log_path,
-                num_neg=TEST_NUM_NEG_PER_POS,
-                num_batch=test_num_batch,
-                delta_times_list=test_delta_times_list,
-                all_inds_list=test_all_inds_list,
-                batch_size_list=test_batch_size_list,
-                record_log=False,
-            )
-        t_epoch_test += test_result["t_epo"]
+    checkpoint_io_wall_s = 0.0
+    is_best_so_far = False
+
+    if args.validation_lifecycle_v1:
+        checkpoint_started = time.perf_counter()
         val_score_path = epoch_score_dir / f"val_epoch_{epoch_number}.pkl"
-        test_score_path = epoch_score_dir / f"test_epoch_{epoch_number}.pkl"
         save_score_cache(val_score_path, val_result["pos_scores"], val_result["neg_scores"])
-        save_score_cache(test_score_path, test_result["pos_scores"], test_result["neg_scores"])
+        if hybrid_val_ap > best_hybrid_val_ap:
+            torch.save(model.state_dict(), best_checkpoint_path)
+            best_hybrid_val_ap = hybrid_val_ap
+            best_epoch_idx = epoch_idx
+            best_yita = epoch_best_yita
+            best_val_score_path = val_score_path
+            best_val_scores = (val_result["pos_scores"], val_result["neg_scores"])
+            is_best_so_far = True
+            print("Saving the best hybrid-validation model.")
+        checkpoint_io_wall_s = time.perf_counter() - checkpoint_started
+    else:
+        if save_epoch_scores:
+            assert test_num_batch is not None
+            assert test_delta_times_list is not None
+            assert test_all_inds_list is not None
+            assert test_batch_size_list is not None
+            with torch.no_grad():
+                test_result = run(
+                    model,
+                    "Test",
+                    epoch_number,
+                    None,
+                    None,
+                    log_path,
+                    num_neg=TEST_NUM_NEG_PER_POS,
+                    num_batch=test_num_batch,
+                    delta_times_list=test_delta_times_list,
+                    all_inds_list=test_all_inds_list,
+                    batch_size_list=test_batch_size_list,
+                    record_log=False,
+                )
+            t_epoch_test += test_result["t_epo"]
+            val_score_path = epoch_score_dir / f"val_epoch_{epoch_number}.pkl"
+            test_score_path = epoch_score_dir / f"test_epoch_{epoch_number}.pkl"
+            save_score_cache(val_score_path, val_result["pos_scores"], val_result["neg_scores"])
+            save_score_cache(test_score_path, test_result["pos_scores"], test_result["neg_scores"])
 
     should_stop = early_stopper.early_stop_check(float(val_result["ap"]))
-    if epoch_idx == early_stopper.best_epoch:
+    if not args.validation_lifecycle_v1 and epoch_idx == early_stopper.best_epoch:
         torch.save(model.state_dict(), best_checkpoint_path)
         best_epoch_idx = epoch_idx
         best_epoch_test_metrics = test_result
         best_val_score_path = val_score_path
         best_test_score_path = test_score_path
         best_val_scores = (val_result["pos_scores"], val_result["neg_scores"])
+        is_best_so_far = True
         print("Saving the best model.")
 
-    cumulative_train_wall_s += float(train_result["t_epo"])
-    cumulative_epoch_wall_s += float(train_result["t_epo"]) + float(val_result["t_epo"]) + float(
-        test_result["t_epo"] if test_result is not None else 0.0
+    epoch_lifecycle_wall_s = time.perf_counter() - epoch_started
+    validation_peak_hbm_bytes = max(
+        int(val_result["allocated_memory_bytes"]),
+        int(torch.cuda.max_memory_allocated(device)),
     )
+    process_peak_hbm_bytes = max(
+        process_peak_hbm_bytes,
+        int(train_result["allocated_memory_bytes"]),
+        validation_peak_hbm_bytes,
+    )
+    cumulative_train_wall_s += train_loop_wall_s
+    cumulative_epoch_wall_s += epoch_lifecycle_wall_s
     epoch_rows.append(
         {
             "epoch": epoch_number,
+            "train_event_count": n_train,
             "train_loss": train_result["loss"],
             "val_ap": val_result["ap"],
+            "hybrid_val_ap": hybrid_val_ap,
             "val_auc": "",
             "test_ap": test_result["ap"] if test_result is not None else "",
             "test_auc": test_result["mrr"] if test_result is not None else "",
-            "train_wall_s": round(float(train_result["t_epo"]), 6),
-            "val_wall_s": round(float(val_result["t_epo"]), 6),
-            "test_wall_s": round(float(test_result["t_epo"]), 6) if test_result is not None else "",
-            "cumulative_train_wall_s": round(cumulative_train_wall_s, 6),
-            "cumulative_epoch_wall_s": round(cumulative_epoch_wall_s, 6),
+            "train_wall_s": train_loop_wall_s,
+            "val_wall_s": validation_compute_wall_s,
+            "hybrid_validation_wall_s": hybrid_validation_wall_s,
+            "test_wall_s": float(test_result["t_epo"]) if test_result is not None else "",
+            "validation_compute_wall_s": validation_compute_wall_s,
+            "validation_diagnostic_wall_s": 0.0,
+            "checkpoint_io_wall_s": checkpoint_io_wall_s,
+            "lifecycle_unattributed_wall_s": (
+                epoch_lifecycle_wall_s
+                - train_loop_wall_s
+                - validation_compute_wall_s
+                - checkpoint_io_wall_s
+            ),
+            "epoch_wall_s": epoch_lifecycle_wall_s,
+            "validation_ap": hybrid_val_ap,
+            "is_best_so_far": is_best_so_far,
+            "test_executed_this_epoch": test_result is not None,
+            "temporal_state_origin": "not_applicable",
+            "process_peak_hbm_bytes": process_peak_hbm_bytes,
+            "validation_peak_hbm_bytes": validation_peak_hbm_bytes,
+            "cumulative_train_wall_s": cumulative_train_wall_s,
+            "cumulative_epoch_wall_s": cumulative_epoch_wall_s,
+            "best_yita": epoch_best_yita if epoch_best_yita is not None else "",
             "val_score_path": str(val_score_path) if val_score_path is not None else "",
             "test_score_path": str(test_score_path) if test_score_path is not None else "",
         }
     )
 
     if should_stop:
-        if best_checkpoint_path.exists():
-            model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
-        print("\nLoading the best model.")
+        print("\nEarly stopping after the current validation lifecycle.")
         model.eval()
         break
 
@@ -668,9 +795,40 @@ if best_checkpoint_path.exists():
     model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
 model.eval()
 
-final_test_result = best_epoch_test_metrics
+final_test_result = None if args.validation_lifecycle_v1 else best_epoch_test_metrics
 mem_test = final_test_result["allocated_memory"] if final_test_result is not None else 0.0
-if final_test_result is None:
+if args.validation_lifecycle_v1:
+    final_test_score_started = time.perf_counter()
+    test_num_batch, test_delta_times_list, test_all_inds_list, test_batch_size_list = process_time_data(
+        "Test",
+        finder,
+        test_data,
+        batch_size=test_bs,
+        num_neg=TEST_NUM_NEG_PER_POS,
+        filepath=test_filepath,
+    )
+    with torch.no_grad():
+        final_test_result = run(
+            model,
+            "TestScore",
+            best_epoch_idx + 1,
+            None,
+            None,
+            log_path,
+            num_neg=TEST_NUM_NEG_PER_POS,
+            num_batch=test_num_batch,
+            delta_times_list=test_delta_times_list,
+            all_inds_list=test_all_inds_list,
+            batch_size_list=test_batch_size_list,
+        )
+    mem_test = final_test_result["allocated_memory"]
+    save_score_cache(test_time_score_filepath, final_test_result["pos_scores"], final_test_result["neg_scores"])
+    final_test_score_wall_s = time.perf_counter() - final_test_score_started
+elif final_test_result is None:
+    assert test_num_batch is not None
+    assert test_delta_times_list is not None
+    assert test_all_inds_list is not None
+    assert test_batch_size_list is not None
     with torch.no_grad():
         final_test_result = run(
             model,
@@ -694,10 +852,12 @@ else:
     save_score_cache(val_time_score_filepath, best_val_scores[0], best_val_scores[1])
 print(f"Val time score has been saved at {val_time_score_filepath}")
 
-if best_test_score_path is not None and best_test_score_path.exists():
-    shutil.copyfile(best_test_score_path, test_time_score_filepath)
-else:
-    save_score_cache(test_time_score_filepath, final_test_result["pos_scores"], final_test_result["neg_scores"])
+if not args.validation_lifecycle_v1:
+    if best_test_score_path is not None and best_test_score_path.exists():
+        shutil.copyfile(best_test_score_path, test_time_score_filepath)
+    else:
+        assert final_test_result is not None
+        save_score_cache(test_time_score_filepath, final_test_result["pos_scores"], final_test_result["neg_scores"])
 print(f"Test time score has been saved at {test_time_score_filepath}")
 
 if best_model_path.exists():
@@ -706,10 +866,11 @@ if best_checkpoint_path.exists():
     os.replace(best_checkpoint_path, best_model_path)
 
 best_epoch = best_epoch_idx + 1
-best_val_ap = float(epoch_rows[best_epoch_idx]["val_ap"])
-best_test_ap = float(final_test_result["ap"])
-best_test_mrr = float(final_test_result["mrr"])
-best_hit_at_10 = final_test_result["hit_at_10"]
+best_val_ap = float(epoch_rows[best_epoch_idx]["validation_ap"])
+assert final_test_result is not None
+best_test_ap = None if args.validation_lifecycle_v1 else float(final_test_result["ap"])
+best_test_mrr = None if args.validation_lifecycle_v1 else float(final_test_result["mrr"])
+best_hit_at_10 = None if args.validation_lifecycle_v1 else final_test_result["hit_at_10"]
 mem_train = peak_train_memory_mb
 
 print(
@@ -739,6 +900,10 @@ if REPORT_DIR is not None:
         "best_epoch": best_epoch,
         "best_val_ap": best_val_ap,
         "best_val_auc": None,
+        "best_yita": best_yita,
+        "validation_lifecycle_v1": args.validation_lifecycle_v1,
+        "final_test_score_materialization_count": 1 if args.validation_lifecycle_v1 else 0,
+        "final_test_score_wall_s": final_test_score_wall_s,
         "val_num_neg_per_pos": VAL_NUM_NEG_PER_POS,
         "test_num_neg_per_pos": TEST_NUM_NEG_PER_POS,
         "metric_protocol_note": (
@@ -768,6 +933,8 @@ if REPORT_DIR is not None:
             "seed": args.seed,
             "filename": filename,
             "workspace_root": str(WORKSPACE_ROOT),
+            "validation_lifecycle_v1": args.validation_lifecycle_v1,
+            "val_structure_score_path": str(VAL_STRUCTURE_SCORE_PATH or ""),
         },
         "paths": {
             "log_path": str(log_path),
@@ -778,10 +945,15 @@ if REPORT_DIR is not None:
         },
         "wall_seconds": {
             "prepare": round(prepare_wall_s, 6),
-            "train": round(t_train, 6),
-            "val": round(t_val, 6),
-            "test": round(t_epoch_test, 6),
-            "total": round(prepare_wall_s + t_train + t_val + t_epoch_test, 6),
+            "train": round(sum(float(row["train_wall_s"]) for row in epoch_rows), 6),
+            "val": round(sum(float(row["validation_compute_wall_s"]) for row in epoch_rows), 6),
+            "test": round(final_test_score_wall_s if args.validation_lifecycle_v1 else t_epoch_test, 6),
+            "total": round(
+                prepare_wall_s
+                + sum(float(row["epoch_wall_s"]) for row in epoch_rows)
+                + final_test_score_wall_s,
+                6,
+            ),
         },
         "stop_reason": "early_stop" if num_epo < args.num_epochs else "max_epochs",
     }
@@ -790,16 +962,31 @@ if REPORT_DIR is not None:
         REPORT_DIR / "epoch_metrics.csv",
         [
             "epoch",
+            "train_event_count",
             "train_loss",
             "val_ap",
+            "hybrid_val_ap",
             "val_auc",
             "test_ap",
             "test_auc",
             "train_wall_s",
             "val_wall_s",
+            "hybrid_validation_wall_s",
             "test_wall_s",
+            "validation_compute_wall_s",
+            "validation_diagnostic_wall_s",
+            "checkpoint_io_wall_s",
+            "lifecycle_unattributed_wall_s",
+            "epoch_wall_s",
+            "validation_ap",
+            "is_best_so_far",
+            "test_executed_this_epoch",
+            "temporal_state_origin",
+            "process_peak_hbm_bytes",
+            "validation_peak_hbm_bytes",
             "cumulative_train_wall_s",
             "cumulative_epoch_wall_s",
+            "best_yita",
             "val_score_path",
             "test_score_path",
         ],

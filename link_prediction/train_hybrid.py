@@ -1,18 +1,19 @@
 import argparse
 import csv
 import json
-import math
 import pickle
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-import numpy as np
 import torch
-from sklearn.metrics import average_precision_score
 
 from utils.data_processing import get_data_transductive
-from utils.util import compute_metrics
+from utils.hybrid_evaluation import (
+    evaluate_test_metrics,
+    prepare_hybrid_batches,
+    search_best_yita,
+)
 
 
 parser = argparse.ArgumentParser("Training EAGLE-Hybrid.")
@@ -154,129 +155,136 @@ with test_time_data_filepath.open("rb") as ttdf:
     _, test_delta_times_list, test_all_inds_list, test_batch_size_list = pickle.load(ttdf)
 
 
-def prepare_hybrid_batches(
-    data,
-    batch_size,
-    time_pos_score,
-    time_neg_score,
-    structure_score,
-    delta_times_list,
-    all_inds_list,
-    num_neg_per_pos,
-    time_topk,
-    device,
-):
-    torch.set_grad_enabled(False)
-
-    num_pos_edge = data.n_interactions
-    batch_size = batch_size if batch_size != -1 else num_pos_edge
-    num_batch = math.ceil(num_pos_edge / batch_size)
-    batches: List[Dict[str, object]] = []
-
-    for batch_idx in range(0, num_batch):
-        batch_time_pos_score = time_pos_score[batch_idx].squeeze(1).to(device)
-        batch_time_neg_score = time_neg_score[batch_idx].squeeze(1).to(device)
-
-        start_idx = batch_idx * batch_size
-        end_idx = min(num_pos_edge, start_idx + batch_size)
-        pos_ids = np.array(list(range(start_idx, end_idx)))
-        cur_batch_size = min(batch_size, num_pos_edge - start_idx)
-        neg_ids = np.concatenate([pos_ids + i * num_pos_edge for i in range(1, 1 + num_neg_per_pos)])
-
-        batch_skc_pos_score_tensor = torch.tensor(structure_score[pos_ids], dtype=torch.float32, device=device)
-        batch_skc_neg_score_tensor = torch.tensor(structure_score[neg_ids], dtype=torch.float32, device=device)
-
-        delta_times = delta_times_list[batch_idx].squeeze(1).to(device)
-        all_inds = all_inds_list[batch_idx].to(device)
-        total_groups = (2 + num_neg_per_pos) * cur_batch_size
-
-        group_ids = torch.div(all_inds, time_topk, rounding_mode="floor")
-        counts = torch.bincount(group_ids, minlength=total_groups)
-        max_delta_value = delta_times.max()
-        sums = torch.bincount(group_ids, weights=delta_times, minlength=total_groups)
-        padded_sums = sums + (time_topk - counts.to(delta_times.dtype)) * max_delta_value
-        avg_dts_tensor = padded_sums / time_topk
-        avg_dts_tensor = avg_dts_tensor / avg_dts_tensor.mean() - 1
-
-        src_dts = avg_dts_tensor[:cur_batch_size]
-        pos_dst_dts = avg_dts_tensor[cur_batch_size : 2 * cur_batch_size]
-        neg_dst_dts = avg_dts_tensor[2 * cur_batch_size :]
-
-        pos_time_component = ((torch.exp(-src_dts) + torch.exp(-pos_dst_dts)) / 2) * batch_time_pos_score
-        neg_time_component = (
-            (torch.exp(-src_dts.repeat(num_neg_per_pos)) + torch.exp(-neg_dst_dts)) / 2
-        ) * batch_time_neg_score
-
-        batches.append(
-            {
-                "pos_structure": batch_skc_pos_score_tensor.cpu(),
-                "neg_structure": batch_skc_neg_score_tensor.cpu(),
-                "pos_time_component": pos_time_component.cpu(),
-                "neg_time_component": neg_time_component.cpu(),
-            }
-        )
-
-    return batches
-
-
-def evaluate_val_ap(prepared_batches: List[Dict[str, object]], yita: float) -> float:
-    ap_list = []
-    for batch in prepared_batches:
-        pos_score = batch["pos_structure"] + yita * batch["pos_time_component"]
-        neg_score = batch["neg_structure"] + yita * batch["neg_time_component"]
-        y_pred = torch.cat([pos_score, neg_score], dim=0).numpy()
-        y_true = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)], dim=0).numpy()
-        ap_list.append(average_precision_score(y_true, y_pred))
-    ap = float(np.mean(ap_list))
-    print(f"yita: {yita:.0e} -- Val ap: {ap}")
-    return ap
-
-
-def evaluate_test_metrics(prepared_batches: List[Dict[str, object]], yita: float, k_list: List[int]):
-    ap_list, mrr_list, hit_list = [], [], []
-    cpu_device = torch.device("cpu")
-    for batch in prepared_batches:
-        pos_score = batch["pos_structure"] + yita * batch["pos_time_component"]
-        neg_score = batch["neg_structure"] + yita * batch["neg_time_component"]
-        ap, mrr, hr_list = compute_metrics(pos_score, neg_score, cpu_device, k_list=k_list)
-        ap_list.append(ap)
-        mrr_list.append(mrr)
-        hit_list.append(hr_list)
-
-    ap = float(np.mean(ap_list))
-    mrr = float(np.mean(mrr_list))
-    hit_array = np.array(hit_list)
-    all_hr = np.mean(hit_array, axis=0)
-    print(
-        f"Test: ap: {ap:.4f}, mrr: {mrr:.4f}, "
-        + ", ".join([f"hr@{k}: {hr:.4f}" for k, hr in zip(k_list, all_hr)])
-        + "\n"
-    )
-    return ap, mrr, all_hr
-
-
-def search_best_yita(prepared_val_batches: List[Dict[str, object]]):
-    yita_list = np.concatenate([np.array([1e-6, 2e-6, 3e-6, 5e-6, 8e-6]) * 10 ** i for i in range(0, 7)])
-    best_yita = 0.0
-    best_val_ap = float("-inf")
-    for yita in yita_list:
-        val_ap = evaluate_val_ap(prepared_val_batches, float(yita))
-        if val_ap > best_val_ap:
-            best_val_ap = val_ap
-            best_yita = float(yita)
-    return best_yita, float(best_val_ap)
-
-
 device = torch.device(f"cuda:{args.gpu}")
 k_list = [10]
 
 time_summary = load_stage_summary("time")
 structure_summary = load_stage_summary("structure")
+structure_test_summary = load_stage_summary("structure_test")
 time_epoch_metrics_path = STAGE_ROOT / "time" / "epoch_metrics.csv" if STAGE_ROOT is not None else None
 
 benchmark_mode = time_epoch_metrics_path is not None and time_epoch_metrics_path.exists()
+lifecycle_mode = bool(time_summary and time_summary.get("validation_lifecycle_v1"))
 
-if benchmark_mode:
+if benchmark_mode and lifecycle_mode:
+    time_epoch_rows = load_csv_rows(time_epoch_metrics_path)
+    if not time_epoch_rows:
+        raise ValueError("EAGLE lifecycle hybrid selection requires non-empty time epoch metrics")
+
+    hybrid_rows: List[Dict[str, object]] = []
+    for raw_row in time_epoch_rows:
+        if raw_row.get("test_executed_this_epoch", "").strip().lower() != "false":
+            raise ValueError(f"epoch {raw_row.get('epoch')} executed test before best selection")
+        if raw_row.get("test_score_path"):
+            raise ValueError(f"epoch {raw_row.get('epoch')} exposes a per-epoch test score cache")
+        record: Dict[str, object] = dict(raw_row)
+        record["val_ap"] = raw_row["validation_ap"]
+        record["hybrid_eval_wall_s"] = raw_row["hybrid_validation_wall_s"]
+        hybrid_rows.append(record)
+
+    best_row = max(hybrid_rows, key=lambda row: float(row["validation_ap"]))
+    selected_epoch = int(best_row["epoch"])
+    selected_yita = float(best_row["best_yita"])
+    if time_summary is None:
+        raise ValueError("EAGLE lifecycle hybrid selection requires the time-stage summary")
+    if selected_epoch != int(time_summary["best_epoch"]):
+        raise ValueError("time-stage best epoch disagrees with hybrid validation rows")
+    if selected_yita != float(time_summary["best_yita"]):
+        raise ValueError("time-stage best yita disagrees with hybrid validation rows")
+
+    final_test_started = time.perf_counter()
+    test_time_pos_score, test_time_neg_score = load_pickle(test_time_score_filepath)
+    prepared_test_batches = prepare_hybrid_batches(
+        test_data,
+        bs,
+        test_time_pos_score,
+        test_time_neg_score,
+        test_structure_score,
+        test_delta_times_list,
+        test_all_inds_list,
+        test_num_neg_per_pos,
+        time_topk,
+        device,
+    )
+    test_ap, test_mrr, test_hr = evaluate_test_metrics(prepared_test_batches, selected_yita, k_list)
+    final_test_wall_s = time.perf_counter() - final_test_started
+
+    structure_total_s = (
+        safe_float(structure_summary.get("wall_seconds", {}).get("total"))
+        if structure_summary
+        else 0.0
+    )
+    structure_test_total_s = (
+        safe_float(structure_test_summary.get("wall_seconds", {}).get("total"))
+        if structure_test_summary
+        else 0.0
+    )
+    time_total_s = safe_float(time_summary.get("wall_seconds", {}).get("total")) or 0.0
+    time_prepare_s = safe_float(time_summary.get("wall_seconds", {}).get("prepare")) or 0.0
+    summary_payload = {
+        "system": "EAGLE",
+        "model": "EAGLE",
+        "dataset": DATA,
+        "run_type": "tta",
+        "epochs_requested": args.epochs_requested or int(time_summary["epochs_requested"]),
+        "completed_epochs": len(hybrid_rows),
+        "best_epoch": selected_epoch,
+        "best_val_ap": float(best_row["validation_ap"]),
+        "best_val_auc": None,
+        "best_yita": selected_yita,
+        "val_num_neg_per_pos": val_num_neg_per_pos,
+        "test_num_neg_per_pos": test_num_neg_per_pos,
+        "metric_protocol_note": (
+            "Validation AP uses 1 negative per positive while test AP uses 99; "
+            "the two AP values are not directly comparable as a val-test gap."
+        ),
+        "final_test_metrics": {
+            "ap": float(test_ap),
+            "auc_or_mrr": float(test_mrr),
+            "hit_at_10": float(test_hr[0]) if len(test_hr) > 0 else None,
+        },
+        "final_test_executed_count": 1,
+        "final_test_wall_s": final_test_wall_s,
+        "temporal_state_origin": "not_applicable",
+        "validation_lifecycle_v1": True,
+        "config": {
+            "dataset_name": DATA,
+            "seed": args.seed,
+            "structure": params["structure"],
+            "time": params["time"],
+            "val_num_neg_per_pos": val_num_neg_per_pos,
+            "test_num_neg_per_pos": test_num_neg_per_pos,
+            "workspace_root": str(WORKSPACE_ROOT),
+        },
+        "paths": {
+            "time_summary_path": str(time_epoch_metrics_path.parent / "summary.json"),
+            "time_epoch_metrics_path": str(time_epoch_metrics_path),
+            "structure_summary_path": str(STAGE_ROOT / "structure" / "summary.json"),
+            "structure_test_summary_path": str(STAGE_ROOT / "structure_test" / "summary.json"),
+            "val_structure_score_path": str(val_structure_score_filepath),
+            "test_structure_score_path": str(test_structure_score_filepath),
+            "val_time_data_path": str(val_time_data_filepath),
+            "test_time_data_path": str(test_time_data_filepath),
+            "test_time_score_path": str(test_time_score_filepath),
+        },
+        "wall_seconds": {
+            "prepare": round(time_prepare_s, 6),
+            "build": round((structure_total_s or 0.0) + (structure_test_total_s or 0.0), 6),
+            "hybrid_final_test": round(final_test_wall_s, 6),
+            "total": round(
+                (structure_total_s or 0.0)
+                + (structure_test_total_s or 0.0)
+                + time_total_s
+                + final_test_wall_s,
+                6,
+            ),
+        },
+    }
+    if REPORT_DIR is not None:
+        dump_json(REPORT_DIR / "summary.json", summary_payload)
+        write_csv_rows(REPORT_DIR / "epoch_metrics.csv", list(hybrid_rows[0]), hybrid_rows)
+    print(f"\nBest epoch: {selected_epoch}, best val ap: {summary_payload['best_val_ap']:.6f}")
+elif benchmark_mode:
     time_epoch_rows = load_csv_rows(time_epoch_metrics_path)
     structure_total_s = safe_float(structure_summary.get("wall_seconds", {}).get("total")) if structure_summary else 0.0
     time_total_s = safe_float(time_summary.get("wall_seconds", {}).get("total")) if time_summary else 0.0
